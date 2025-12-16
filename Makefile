@@ -46,16 +46,16 @@ CMD_FORCE:;
 check: imports fmt golangci-lint
 
 imports:
-	@goimports -w -local huatuo-bamai  $(shell find . -type f -name '*.go' -not -path "./vendor/*")
+	goimports -w -local huatuo-bamai  $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 
 fmt: fmt-rewrite-rules
-	@gofumpt -l -w $(shell find . -type f -name '*.go' -not -path "./vendor/*")
+	gofumpt -l -w $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 
 fmt-rewrite-rules:
-	@gofmt -w -r 'interface{} -> any' $(shell find . -type f -name '*.go' -not -path "./vendor/*")
+	gofmt -w -r 'interface{} -> any' $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 
 golangci-lint:
-	@golangci-lint run -v ./... --timeout=5m --config .golangci.yaml
+	golangci-lint run -v ./... --timeout=5m --config .golangci.yaml
 
 vendor:
 	$(GO) mod tidy

@@ -10,8 +10,6 @@ jobs:
   lint-build:
     name: Lint & Build
     runs-on: ubuntu-latest
-    outputs:
-      image: huatuo-dev:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -39,4 +37,4 @@ jobs:
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
             huatuo-dev:latest \
-            make gen && make check && make build
+            sh -c "git config --global --add safe.directory /workspace && make gen && make check && make build"

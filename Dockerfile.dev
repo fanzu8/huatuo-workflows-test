@@ -1,16 +1,14 @@
 FROM golang:1.23.0-alpine AS base
 # RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-RUN apk add --no-cache make clang15 libbpf-dev bpftool \
-                       curl git binutils-gold musl-dev
+RUN apk add --no-cache make clang15 libbpf-dev bpftool curl git \
+    musl-dev # for golangci-lint
 
-ENV PATH="/usr/lib/llvm15/bin:${PATH}" \
-    GOPROXY=https://goproxy.io,direct \
-    GIT_TERMINAL_PROMPT=0
+ENV GOPATH="/go" \
+    GOROOT="/usr/local/go" \
+    GOPROXY="https://goproxy.io,direct" \
+    PATH="${GOPATH}/bin:${GOROOT}/bin:/usr/lib/llvm15/bin:${PATH}"
 
 RUN go install golang.org/x/tools/cmd/goimports@v0.35.0 \
     && go install mvdan.cc/gofumpt@v0.8.0 \
-    && curl -sSfL https://github.com/golangci/golangci-lint/releases/download/v1.63.0/golangci-lint-1.63.0-linux-amd64.tar.gz \
-    | tar -xz -C /usr/local/bin --strip-components=1 golangci-lint-1.63.0-linux-amd64/golangci-lint
-
-# build huatuo components
-FROM base AS lint-build
+    && curl -sSfL https://github.com/golangci/golangci-lint/releases/download/v1.62.2/golangci-lint-1.62.2-linux-amd64.tar.gz \
+    | tar -xz -C /usr/local/bin --strip-components=1 golangci-lint-1.62.2-linux-amd64/golangci-lint
