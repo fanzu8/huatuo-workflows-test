@@ -46,10 +46,9 @@ jobs:
             -v "${{ github.workspace }}/arch-compiled/${{ matrix.arch }}:/compiled" \
             -w /work \
             huatuo-build:${{ matrix.arch }} \
-            sh -c "git config --global --add safe.directory /huatuo-src \
-              && cp -r /huatuo-src/* . \
+            sh -c "cp -r /huatuo-src/* . \
               && make clean && make --trace \
-              mv _output/* /compiled/"
+              && mv _output/* /compiled/"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
@@ -70,18 +69,15 @@ jobs:
         arch:
           - amd64
           - arm64
-        kernel:
-          # renovate: datasource=docker depName=quay.io/lvh-images/kind
-          - 4.19
-          # renovate: datasource=docker depName=quay.io/lvh-images/kind
-          - 5.10
-          # renovate: datasource=docker depName=quay.io/lvh-images/kind
-          - 6.1
+        kernel: # https://quay.io/repository/lvh-images/kind?tab=tags
+          - 4.19-20251222.013332
+          - 5.10-20251222.013332
+          - 6.6-20251222.013332
         exclude:
           - arch: arm64
-            kernel: 6.1
+            kernel: 6.6-20251222.013332
           - arch: arm64
-            kernel: 4.19
+            kernel: 4.19-20251222.013332
 
     steps:
       - name: Checkout
@@ -92,6 +88,12 @@ jobs:
         uses: actions/download-artifact@v6
         with:
           name: huatuo-compiled-${{ matrix.arch }}
+          path: huatuo-compiled-${{ matrix.arch }}
+          run: |
+            echo "=== Artifacts ==="
+            pwd
+            ls -lha
+            ls -lah huatuo-compiled-${{ matrix.arch }}
 
       # 启动 LVH VM
       - name: Provision LVH VM
@@ -110,13 +112,14 @@ jobs:
             echo "=== Workspace ==="
             pwd
             ls
-            tree -I vendor
+            ls -lah /host/*
+            ls -lah /host/huatuo-compiled-${{ matrix.arch }}
             
             echo "=== Kernel ==="
             uname -a && uname -m
 
             echo "=== Test... ==="
-            chmod +x /host/_output/${{ matrix.arch }}/bin/huatuo-bamai
-            timeout -s SIGKILL 60s /host/_output/${{ matrix.arch }}/bin/huatuo-bamai \
+            chmod +x /host/huatuo-compiled-${{ matrix.arch }}/bin/huatuo-bamai
+            timeout -s SIGKILL 60s /host/huatuo-compiled-${{ matrix.arch }}/bin/huatuo-bamai \
               --region example \
-              --config /host/huatuo-bamai.conf
+              --config huatuo-bamai.conf
