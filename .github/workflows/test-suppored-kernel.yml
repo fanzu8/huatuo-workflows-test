@@ -40,18 +40,22 @@ jobs:
 
       - name: Compile in container
         run: |
+          mkdir -p arch-compiled/${{ matrix.arch }}
           docker run --rm \
-            -v "${{ github.workspace }}:/workspace" \
-            -w /workspace \
+            -v "${{ github.workspace }}:/huatuo-src:ro" \
+            -v "${{ github.workspace }}/arch-compiled/${{ matrix.arch }}:/compiled" \
+            -w /work \
             huatuo-build:${{ matrix.arch }} \
-            git config --global --add safe.directory /workspace && make clean && make --trace
+            sh -c "git config --global --add safe.directory /huatuo-src \
+              && cp -r /huatuo-src/* . \
+              && make clean && make --trace \
+              mv _output/* /compiled/"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
-          name: huatuo-${{ matrix.arch }}
-          path: _output/${{ matrix.arch }}/
-
+          name: huatuo-compiled-${{ matrix.arch }}
+          path: arch-compiled/${{ matrix.arch }}
 
 
   # 2️⃣ 测试（arch & kernel）
@@ -87,7 +91,7 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v6
         with:
-          name: huatuo-arch-kernel-test-artifacts
+          name: huatuo-compiled-${{ matrix.arch }}
 
       # 启动 LVH VM
       - name: Provision LVH VM
