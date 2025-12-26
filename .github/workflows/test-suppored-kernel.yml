@@ -120,6 +120,8 @@ jobs:
             echo "=== Test... ==="
             chmod +x /host/_output/${{ matrix.arch }}/bin/huatuo-bamai
             # disable es and kubelet fetching pods in huatuo-bamai.conf
+            sed -i -e 's/# Address.*/Address=""/g' \
+            /host/_output/${{ matrix.arch }}/conf/huatuo-bamai.conf
             sed -i '/KubeletClientCertPath =.*/c\\    KubeletReadOnlyPort = 0\n    KubeletAuthorizedPort = 0\n    KubeletClientCertPath = \"/etc/kubernetes/pki/apiserver-kubelet-client.crt,/etc/kubernetes/pki/apiserver-kubelet-client.key\"' \
             /host/_output/${{ matrix.arch }}/conf/huatuo-bamai.conf
 
