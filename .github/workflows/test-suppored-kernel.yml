@@ -40,21 +40,21 @@ jobs:
 
       - name: Compile in container
         run: |
-          mkdir -p arch-compiled/${{ matrix.arch }}
+          mkdir -p _output/${{ matrix.arch }}
           docker run --rm \
             -v "${{ github.workspace }}:/huatuo-src:ro" \
-            -v "${{ github.workspace }}/arch-compiled/${{ matrix.arch }}:/compiled" \
+            -v "${{ github.workspace }}/_output/${{ matrix.arch }}:/_output" \
             -w /work \
             huatuo-build:${{ matrix.arch }} \
             sh -c "cp -r /huatuo-src/* . \
               && make clean && make --trace \
-              && mv _output/* /compiled/"
+              && mv _output/* /_output/"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
-          name: huatuo-compiled-${{ matrix.arch }}
-          path: arch-compiled/${{ matrix.arch }}
+          name: output-${{ matrix.arch }}
+          path: _output/${{ matrix.arch }}
 
 
   # 2️⃣ 测试（arch & kernel）
@@ -68,16 +68,13 @@ jobs:
       matrix:
         arch:
           - amd64
-          - arm64
         kernel: # https://quay.io/repository/lvh-images/kind?tab=tags
           - 4.19-20251222.013332
           - 5.10-20251222.013332
           - 6.6-20251222.013332
-        exclude:
+        include:
           - arch: arm64
-            kernel: 6.6-20251222.013332
-          - arch: arm64
-            kernel: 4.19-20251222.013332
+            kernel: 5.10-20251222.013332
 
     steps:
       - name: Checkout
@@ -87,13 +84,13 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v6
         with:
-          name: huatuo-compiled-${{ matrix.arch }}
-          path: huatuo-compiled-${{ matrix.arch }}
+          name: output-${{ matrix.arch }}
+          path: _output/${{ matrix.arch }}
           run: |
             echo "=== Artifacts ==="
             pwd
             ls -lha
-            ls -lah huatuo-compiled-${{ matrix.arch }}
+            ls -lah _output/${{ matrix.arch }}
 
       # 启动 LVH VM
       - name: Provision LVH VM
@@ -114,24 +111,21 @@ jobs:
             pwd
             ls
             ls -lah /host/
-            ls -lah /host/huatuo-compiled-${{ matrix.arch }}
+            ls -lah /host/_output/${{ matrix.arch }}
             
             echo "=== Kernel ==="
             uname -a && uname -m
-            
-            echo "=== PATH ==="
-            ls -lH $(echo $PATH | tr ':' ' ') 2>/dev/null | grep -v '^d' | awk '{print $NF}'
-            compgen -c | sort | uniq
+            echo "=== PATH ==
 
             echo "=== Test... ==="
-            chmod +x /host/huatuo-compiled-${{ matrix.arch }}/bin/huatuo-bamai
+            chmod +x /host/_output/${{ matrix.arch }}/bin/huatuo-bamai
             # disable es and kubelet fetching pods in huatuo-bamai.conf
             sed -i \
             -e 's/# Address.*/Address=""/g' \
             -e '$a\    KubeletReadOnlyPort=0' \
             -e '$a\    KubeletAuthorizedPort=0' \
-            /host/huatuo-compiled-${{ matrix.arch }}/conf/huatuo-bamai.conf
+            /host/_output/${{ matrix.arch }}/conf/huatuo-bamai.conf
 
-            timeout -s SIGKILL 60s /host/huatuo-compiled-${{ matrix.arch }}/bin/huatuo-bamai \
+            timeout -s SIGKILL 60s /host/_output/${{ matrix.arch }}/bin/huatuo-bamai \
               --region example \
               --config huatuo-bamai.conf
