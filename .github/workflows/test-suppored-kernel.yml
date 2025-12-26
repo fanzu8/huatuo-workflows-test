@@ -102,6 +102,7 @@ jobs:
           arch: ${{ matrix.arch }}
           image-version: ${{ matrix.kernel }}
           install-dependencies: true
+          cpu-kind: ${{ matrix.arch == 'arm64' && 'cortex-a72' || 'host' }}
           host-mount: ./
           mem: 4G
           cpu: 2
@@ -112,14 +113,25 @@ jobs:
             echo "=== Workspace ==="
             pwd
             ls
-            ls -lah /host/*
+            ls -lah /host/
             ls -lah /host/huatuo-compiled-${{ matrix.arch }}
             
             echo "=== Kernel ==="
             uname -a && uname -m
+            
+            echo "=== PATH ==="
+            ls -lH $(echo $PATH | tr ':' ' ') 2>/dev/null | grep -v '^d' | awk '{print $NF}'
+            compgen -c | sort | uniq
 
             echo "=== Test... ==="
             chmod +x /host/huatuo-compiled-${{ matrix.arch }}/bin/huatuo-bamai
+            # disable es and kubelet fetching pods in huatuo-bamai.conf
+            sed -i \
+            -e 's/# Address.*/Address=""/g' \
+            -e '$a\    KubeletReadOnlyPort=0' \
+            -e '$a\    KubeletAuthorizedPort=0' \
+            /host/huatuo-compiled-${{ matrix.arch }}/conf/huatuo-bamai.conf
+
             timeout -s SIGKILL 60s /host/huatuo-compiled-${{ matrix.arch }}/bin/huatuo-bamai \
               --region example \
               --config huatuo-bamai.conf
