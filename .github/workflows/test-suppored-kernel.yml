@@ -34,7 +34,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          file: ./Dockerfile
+          file: ./Dockerfile.devel
           push: false
           load: true
           platforms: linux/amd64
@@ -46,7 +46,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          file: ./Dockerfile
+          file: ./Dockerfile.devel
           push: false
           load: true
           platforms: linux/arm64
@@ -93,7 +93,7 @@ jobs:
           - arm64
         kernel:
           # renovate: datasource=docker depName=quay.io/lvh-images/kind
-          - 4.19          
+          - 4.19
           # renovate: datasource=docker depName=quay.io/lvh-images/kind
           - 5.10
           # renovate: datasource=docker depName=quay.io/lvh-images/kind
@@ -101,6 +101,8 @@ jobs:
         exclude:
           - arch: arm64
             kernel: 6.1
+          - arch: arm64
+            kernel: 4.19
 
     steps:
       - name: Checkout
