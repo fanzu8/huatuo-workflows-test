@@ -28,6 +28,7 @@ gen:
 
 APP_CMD_DIR := cmd
 APP_CMD_OUTPUT := _output
+APP_CMD_OUTPUT := $(APP_CMD_OUTPUT)/$(ARCH)
 
 CMD_SUBDIRS := $(shell find $(APP_CMD_DIR) -mindepth 1 -maxdepth 1 -type d)
 APP_CMD_BIN_TARGETS := $(patsubst %,$(APP_CMD_OUTPUT)/bin/%,$(notdir $(CMD_SUBDIRS)))
