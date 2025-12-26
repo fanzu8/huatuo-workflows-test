@@ -14,8 +14,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # arch: [amd64, arm64] # arm64 too slow
-        arch: [amd64]
+        arch: [amd64, arm64] # arm64 too slow
+        # arch: [amd64]
 
     steps:
       - name: Checkout
@@ -73,9 +73,9 @@ jobs:
           - 4.19-20251222.013332
           - 5.10-20251222.013332
           - 6.6-20251222.013332
-        # include: # arm64 too slow, cpu cannot passthrough
-        #   - arch: arm64
-        #     kernel: 5.10-20251222.013332
+        include: # arm64 too slow, cpu cannot passthrough
+          - arch: arm64
+            kernel: 5.10-20251222.013332
 
     steps:
       - name: Checkout
@@ -127,4 +127,5 @@ jobs:
 
             timeout -s SIGKILL 60s /host/_output/${{ matrix.arch }}/bin/huatuo-bamai \
               --region example \
+              --log-debug \
               --config huatuo-bamai.conf
