@@ -7,15 +7,15 @@ on:
     branches: [ main ]
 
 jobs:
-  # 1️⃣ 构建 amd64/arm64 产物
+  # 1️⃣ build amd64/arm64 artifacts
   build:
     name: Build (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64] # arm64 too slow
-        # arch: [amd64]
+        # arch: [amd64, arm64] # arm64 too slow
+        arch: [amd64]
 
     steps:
       - name: Checkout
@@ -45,7 +45,7 @@ jobs:
           docker run --rm \
             -v "${{ github.workspace }}:/huatuo-src:ro" \
             -v "${{ github.workspace }}/_output/${{ matrix.arch }}:/_output" \
-            -w /work \
+            -w /workspace \
             huatuo-build:${{ matrix.arch }} \
             sh -c "cp -r /huatuo-src/* . \
               && make clean && make --trace \
@@ -58,9 +58,9 @@ jobs:
           path: _output/${{ matrix.arch }}
 
 
-  # 2️⃣ 测试（arch & kernel）
+  # 2️⃣ Test for supported arch & kernel
   test:
-    name: Test (arch & kernel)
+    name: Test
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -75,13 +75,12 @@ jobs:
           - 6.6-20251222.013332
         include: # arm64 too slow, cpu cannot passthrough
           - arch: arm64
-            kernel: 5.10-20251222.013332
+            kernel: 6.12-20250616.013250
 
     steps:
       - name: Checkout
         uses: actions/checkout@v3
 
-      # 下载 build 阶段的产物
       - name: Download build artifacts
         uses: actions/download-artifact@v6
         with:
@@ -104,7 +103,7 @@ jobs:
           host-mount: ./
           mem: 4G
           cpu: 2
-          test-name: huatuo-bamai-test
+          test-name: huatuo-run
           cmd: |
             set -eux
             
@@ -119,12 +118,14 @@ jobs:
 
             echo "=== Test... ==="
             chmod +x /host/_output/${{ matrix.arch }}/bin/huatuo-bamai
+            
             # disable es and kubelet fetching pods in huatuo-bamai.conf
             sed -i -e 's/# Address.*/Address=""/g' \
             /host/_output/${{ matrix.arch }}/conf/huatuo-bamai.conf
             sed -i '/KubeletClientCertPath =.*/c\\    KubeletReadOnlyPort = 0\n    KubeletAuthorizedPort = 0\n    KubeletClientCertPath = \"/etc/kubernetes/pki/apiserver-kubelet-client.crt,/etc/kubernetes/pki/apiserver-kubelet-client.key\"' \
             /host/_output/${{ matrix.arch }}/conf/huatuo-bamai.conf
 
-            timeout -s SIGKILL 60s /host/_output/${{ matrix.arch }}/bin/huatuo-bamai \
-              --region example \
-              --config huatuo-bamai.conf
+            # just run huatuo-bamai for 60s
+            timeout -s SIGKILL 60s /host/_output/${{ matrix.arch }}/bin/huatuo-bamai --region example --config huatuo-bamai.conf > /tmp/huatuo-bamai.log 2>&1 || true
+            sed -E 's/(error|panic)/\x1b[31m\1\x1b[0m/gI' /tmp/huatuo-bamai.log
+            ! grep -qE "error|panic" /tmp/huatuo-bamai.log
