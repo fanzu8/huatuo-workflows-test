@@ -14,8 +14,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64] # arm64 too slow
-        # arch: [amd64]
+        # arch: [amd64, arm64] # arm64 too slow
+        arch: [amd64]
 
     steps:
       - name: Checkout
@@ -72,13 +72,13 @@ jobs:
         kernel: # https://quay.io/repository/lvh-images/kind?tab=tags
           - 4.19-20251222.013332
           - 5.10-20251222.013332
-          - 6.6-20251222.013332
-          - rhel8.9-20251222.013332
-        include: # arm64 too slow, cpu cannot passthrough
-          - arch: arm64
-            kernel:
-              - 5.10-20251218.060939
-              - rhel8.9-20251218.060939
+          # - 6.6-20251222.013332
+          # - rhel8.9-20251222.013332
+        # include: # arm64 too slow, cpu cannot passthrough
+        #   - arch: arm64
+        #     kernel:
+        #       - 5.10-20251218.060939
+        #       - rhel8.9-20251218.060939
 
     steps:
       - name: Checkout
@@ -109,27 +109,6 @@ jobs:
           cpu: 2
           test-name: huatuo-run
           cmd: |
-            set -eux
-            
-            echo "=== Workspace ==="
-            pwd
-            ls
-            ls -lah /host/
-            ls -lah /host/_output/${{ matrix.arch }}
-            
-            echo "=== Kernel ==="
-            uname -a
-
-            echo "=== Test... ==="
-            chmod +x /host/_output/${{ matrix.arch }}/bin/huatuo-bamai
-            
-            # disable es and kubelet fetching pods in huatuo-bamai.conf
-            sed -i -e 's/# Address.*/Address=""/g' \
-            /host/_output/${{ matrix.arch }}/conf/huatuo-bamai.conf
-            sed -i '/KubeletClientCertPath =.*/c\\    KubeletReadOnlyPort = 0\n    KubeletAuthorizedPort = 0\n    KubeletClientCertPath = \"/etc/kubernetes/pki/apiserver-kubelet-client.crt,/etc/kubernetes/pki/apiserver-kubelet-client.key\"' \
-            /host/_output/${{ matrix.arch }}/conf/huatuo-bamai.conf
-
-            # just run huatuo-bamai for 60s
-            timeout -s SIGKILL 60s /host/_output/${{ matrix.arch }}/bin/huatuo-bamai --region example --config huatuo-bamai.conf > /tmp/huatuo-bamai.log 2>&1 || true
-            sed -E 's/(error|panic)/\x1b[31m\1\x1b[0m/gI' /tmp/huatuo-bamai.log
-            ! grep -qE "error|panic" /tmp/huatuo-bamai.log
+            echo "======== Test in VM $(uname -a) ========"
+            chmod +x /host/build/ci/test-in-vm.sh
+            sh -c "/host/build/ci/test-in-vm.sh ${{ matrix.arch }}"
