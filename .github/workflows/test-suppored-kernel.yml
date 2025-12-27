@@ -14,8 +14,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # arch: [amd64, arm64] # arm64 too slow
-        arch: [amd64]
+        arch: [amd64, arm64] # arm64 too slow
+        # arch: [amd64]
 
     steps:
       - name: Checkout
