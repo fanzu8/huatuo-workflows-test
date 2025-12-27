@@ -73,9 +73,12 @@ jobs:
           - 4.19-20251222.013332
           - 5.10-20251222.013332
           - 6.6-20251222.013332
+          - rhel8.9-20251222.013332
         include: # arm64 too slow, cpu cannot passthrough
           - arch: arm64
-            kernel: 6.12-20250616.013250
+            kernel:
+              - 5.10-20251218.060939
+              - rhel8.9-20251218.060939
 
     steps:
       - name: Checkout
@@ -96,6 +99,7 @@ jobs:
       - name: Provision LVH VM
         uses: cilium/little-vm-helper@v0.0.28
         with:
+          image: kind # complexity-test, kind
           arch: ${{ matrix.arch }}
           image-version: ${{ matrix.kernel }}
           install-dependencies: true
