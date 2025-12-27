@@ -15,6 +15,7 @@
 package tracing
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -42,10 +43,10 @@ func RegisterEventTracing(name string, factory func() (*EventTracingAttr, error)
 }
 
 func NewRegister(blackListed []string) (map[string]*EventTracingAttr, error) {
-	var err error
-
+	var errs []error
 	tracingOnce.Do(func() {
 		tracingMap := make(map[string]*EventTracingAttr)
+		var err error
 		var attr *EventTracingAttr
 
 		for key, factory := range factories {
@@ -55,20 +56,22 @@ func NewRegister(blackListed []string) (map[string]*EventTracingAttr, error) {
 
 			attr, err = factory()
 			if err != nil {
-				return
+				errs = append(errs, fmt.Errorf("create [%s]: %w", key, err))
+				continue
 			}
 			if attr.Flag&(FlagTracing|FlagMetric) == 0 {
-				err = fmt.Errorf("invalid flag")
-				return
+				errs = append(errs, fmt.Errorf("invalid flag [%s]: %w", key, err))
+				continue
 			}
 			tracingMap[key] = attr
 		}
 		tracingEventAttrMap = tracingMap
 	})
 
-	if err != nil {
-		return nil, err
+	var err error
+	if len(errs) > 0 {
+		err = errors.Join(errs...)
 	}
 
-	return tracingEventAttrMap, nil
+	return tracingEventAttrMap, err
 }

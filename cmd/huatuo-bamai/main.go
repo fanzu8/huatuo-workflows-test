@@ -106,12 +106,12 @@ func mainAction(ctx *cli.Context) error {
 	blacklisted := conf.Get().BlackList
 	prom, err := InitMetricsCollector(blacklisted, conf.Region)
 	if err != nil {
-		return fmt.Errorf("InitMetricsCollector: %w", err)
+		log.Errorf("InitMetricsCollector: %v", err)
 	}
 
 	mgr, err := tracing.NewMgrTracingEvent(blacklisted)
 	if err != nil {
-		return err
+		log.Errorf("NewMgrTracingEvent: %v", err)
 	}
 
 	if err := mgr.MgrTracingEventStartAll(); err != nil {
