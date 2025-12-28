@@ -2,27 +2,28 @@
 set -eux
 
 MATRIX_ARCH=$1
+MOUNT_DIR=/host
 
 echo "======== Workspace ========"
 pwd
 ls
-ls -lah /host/
-ls -lah /host/_output/${MATRIX_ARCH}
+ls -lah ${MOUNT_DIR}/
+ls -lah ${MOUNT_DIR}/_output/${MATRIX_ARCH}
 
 echo "========  Test...  ========"
 # 1️⃣ Prepare
 # disable es and kubelet fetching pods in huatuo-bamai.conf
 sed -i -e 's/# Address.*/Address=""/g' \
-/host/_output/${MATRIX_ARCH}/conf/huatuo-bamai.conf
+${MOUNT_DIR}/_output/${MATRIX_ARCH}/conf/huatuo-bamai.conf
 sed -i '/KubeletClientCertPath =.*/c\\    KubeletReadOnlyPort = 0\n    KubeletAuthorizedPort = 0\n    KubeletClientCertPath = \"/etc/kubernetes/pki/apiserver-kubelet-client.crt,/etc/kubernetes/pki/apiserver-kubelet-client.key\"' \
-/host/_output/${MATRIX_ARCH}/conf/huatuo-bamai.conf
+${MOUNT_DIR}/_output/${MATRIX_ARCH}/conf/huatuo-bamai.conf
 
 # 2️⃣ Test
 # just run huatuo-bamai for 60s
-chmod +x /host/_output/${MATRIX_ARCH}/bin/huatuo-bamai
+chmod +x ${MOUNT_DIR}/_output/${MATRIX_ARCH}/bin/huatuo-bamai
 log_file=/tmp/huatuo-bamai.log
 timeout -s SIGKILL 60s \
-    /host/_output/${MATRIX_ARCH}/bin/huatuo-bamai \
+    ${MOUNT_DIR}/_output/${MATRIX_ARCH}/bin/huatuo-bamai \
     --region example \
     --config huatuo-bamai.conf \
     > $log_file 2>&1 || true

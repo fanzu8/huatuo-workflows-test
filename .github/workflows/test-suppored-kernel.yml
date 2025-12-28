@@ -14,8 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # arch: [amd64, arm64] # arm64 too slow
-        arch: [amd64]
+        arch: [amd64, arm64] # arm64 too slow
 
     steps:
       - name: Checkout
@@ -76,19 +75,19 @@ jobs:
           - 5.15-20251222.013332
           - 6.6-20251222.013332
           - 6.12-20251222.013332
-        include: # arm64 too slow (cpu cannot host-passthrough), otherwise its too many bugs
+        include: # arm64 too slow (cpu cannot host-passthrough)
           - arch: arm64
             kernel: 6.12-20250616.013250
 
     steps:
-      # - name: Checkout
-      #   uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      # - name: Download build artifacts
-      #   uses: actions/download-artifact@v6
-      #   with:
-      #     name: output-${{ matrix.arch }}
-      #     path: _output/${{ matrix.arch }}
+      - name: Download build artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: output-${{ matrix.arch }}
+          path: _output/${{ matrix.arch }}
 
       - name: Provision LVH VM
         uses: cilium/little-vm-helper@v0.0.28
