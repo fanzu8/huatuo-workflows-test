@@ -5,6 +5,21 @@ MATRIX_ARCH=$1
 
 echo "=== Workspace ==="
 pwd
+
+which git || true
+which bash || true
+which bpftrace || true
+which bpftool || true
+which perf || true
+which docker || true
+which dockerd || true
+which containerd || true
+which kubelet || true
+ps -ef | grep kubelet || true
+ps -ef | grep dockerd || true
+ps -ef | grep containerd || true
+
+
 ls
 ls -lah /host/
 ls -lah /host/_output/${MATRIX_ARCH}
