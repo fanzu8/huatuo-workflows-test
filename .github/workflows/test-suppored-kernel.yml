@@ -7,10 +7,10 @@ on:
     branches: [ main ]
 
 jobs:
-  # 1️⃣ build amd64/arm64 artifacts
+  # Build amd64/arm64 artifacts
   build:
     name: Build (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -58,12 +58,12 @@ jobs:
           path: _output/${{ matrix.arch }}
 
 
-  # 2️⃣ Test for supported arch & kernel
+  # Test for supported arch & kernel
   test:
     name: Test
     needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -71,44 +71,38 @@ jobs:
           - amd64
         kernel: # https://quay.io/repository/lvh-images/kind?tab=tags
           - 4.19-20251222.013332
+          - 5.4-20251222.013332
           - 5.10-20251222.013332
-          # - 6.6-20251222.013332
-          # - rhel8.9-20251222.013332
-        # include: # arm64 too slow, cpu cannot passthrough
-        #   - arch: arm64
-        #     kernel:
-        #       - 5.10-20251218.060939
-        #       - rhel8.9-20251218.060939
+          - 5.15-20251222.013332
+          - 6.6-20251222.013332
+          - 6.12-20251222.013332
+        include: # arm64 too slow (cpu cannot host-passthrough), otherwise its too many bugs
+          - arch: arm64
+            kernel: 6.12-20250616.013250
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      # - name: Checkout
+      #   uses: actions/checkout@v3
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v6
-        with:
-          name: output-${{ matrix.arch }}
-          path: _output/${{ matrix.arch }}
-          run: |
-            echo "=== Artifacts ==="
-            pwd
-            ls -lha
-            ls -lah _output/${{ matrix.arch }}
+      # - name: Download build artifacts
+      #   uses: actions/download-artifact@v6
+      #   with:
+      #     name: output-${{ matrix.arch }}
+      #     path: _output/${{ matrix.arch }}
 
-      # 启动 LVH VM
       - name: Provision LVH VM
         uses: cilium/little-vm-helper@v0.0.28
         with:
-          image: complexity-test # complexity-test, kind
+          image: kind # https://quay.io/organization/lvh-images
           arch: ${{ matrix.arch }}
           image-version: ${{ matrix.kernel }}
           install-dependencies: true
-          cpu-kind: ${{ matrix.arch == 'arm64' && 'cortex-a72' || 'host' }}
+          cpu-kind: ''
           host-mount: ./
           mem: 4G
           cpu: 2
           test-name: huatuo-run
           cmd: |
-            echo "======== Test in VM $(uname -a) ========"
+            echo "================ Test in VM [$(uname -a)] ================"
             chmod +x /host/build/ci/test-in-vm.sh
             sh -c "/host/build/ci/test-in-vm.sh ${{ matrix.arch }}"
