@@ -88,13 +88,22 @@ jobs:
         with:
           name: output-${{ matrix.arch }}
           path: _output/${{ matrix.arch }}
-
+    
+      - name: Derive kernel # for arm64, otherwise "find: ‘/kernels/arm64//boot/’: No such file or directory"
+        id: kernel
+        run: |
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            echo "kernel-version=${{ matrix.kernel }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "kernel-version=" >> "$GITHUB_OUTPUT"
+          fi
       - name: Provision LVH VM
         uses: cilium/little-vm-helper@v0.0.28
         with:
           image: kind # https://quay.io/organization/lvh-images
           arch: ${{ matrix.arch }}
           image-version: ${{ matrix.kernel }}
+          kernel-version: ${{ steps.kernel.outputs.kernel-version }}
           install-dependencies: true
           cpu-kind: ''
           host-mount: ./
