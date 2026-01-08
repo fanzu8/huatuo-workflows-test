@@ -45,6 +45,9 @@ docker pull huatuo/os-distro-test:ubuntu24.04.amd64
 cid=$(docker create huatuo/os-distro-test:ubuntu24.04.amd64)
 docker cp ${cid}:/data/${QCOW2_IMAGE}.zst .
 zstd --decompress -f --rm --threads=0 ${QCOW2_IMAGE}.zst
+sudo mkdir -p /var/lib/libvirt/images
+sudo cp ${QCOW2_IMAGE} /var/lib/libvirt/images/
+# sudo chown libvirt-qemu:kvm /var/lib/libvirt/images/${QCOW2_IMAGE}
 
 
 # Bind mac address to vm ip
@@ -63,7 +66,7 @@ sudo virt-install \
   --cloud-init user-data=${CLOUD_USER_DATA} \
   --graphics none \
   --network bridge=virbr0,model=virtio,mac='4A:6F:6C:69:6E:2E' \
-  --disk ${QCOW2_IMAGE},size=10,bus=virtio,cache=none,format=qcow2 \
+  --disk /var/lib/libvirt/images/${QCOW2_IMAGE},size=10,bus=virtio,cache=none,format=qcow2 \
   --import --noautoconsole >/dev/null
 
 # Wait for vm to be ready
