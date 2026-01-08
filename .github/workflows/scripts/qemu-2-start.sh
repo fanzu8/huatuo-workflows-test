@@ -1,13 +1,14 @@
 #!/bin/bash
 set -e
 
+OS_DISTRO=${1:-ubuntu24.04}
+VM_NAME=${2:-huatuo-os-distro-vm}
 QCOW2_IMAGE=ubuntu-24.04-server-cloudimg-amd64.img
 LIBVIRT_IMAGE_DIR=/var/lib/libvirt/images
 CLOUD_USER_DATA=/tmp/user-data
-VM_NAME="huatuo-os-distro-test-vm"
 VM_IP=192.168.122.100
 
-OS_DISTRO=${1:-ubuntu24.04}
+# Set qcow2 image based on os distro
 case "$OS_DISTRO" in
   ubuntu*)
     u_version=${OS_DISTRO#ubuntu}
@@ -61,6 +62,7 @@ sudo chown libvirt-qemu:kvm ${LIBVIRT_IMAGE_DIR}/${QCOW2_IMAGE}
 # Bind mac address to vm ip
 sudo virsh net-update default add ip-dhcp-host \
     "<host mac='4A:6F:6C:69:6E:2E' ip='${VM_IP}'/>" --live --config
+echo " ${VM_IP} ${VM_NAME}" | sudo tee -a /etc/hosts
 
 # Install VM
 sudo virt-install \
