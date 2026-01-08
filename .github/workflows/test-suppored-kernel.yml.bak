@@ -33,7 +33,8 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.devel
+          file: Dockerfile
+          target: base
           load: true
           platforms: linux/${{ matrix.arch }}
           tags: huatuo-build:${{ matrix.arch }}
@@ -49,7 +50,6 @@ jobs:
             sh -c "cp -r /huatuo-src/* . \
               && make clean && make --trace \
               && mv _output/* /_output/"
-
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
@@ -57,7 +57,7 @@ jobs:
           path: _output/${{ matrix.arch }}
 
 
-  # Test for supported arch & kernel
+ # Test for supported arch & kernel
   test:
     name: Test
     needs: build
@@ -88,7 +88,7 @@ jobs:
         with:
           name: output-${{ matrix.arch }}
           path: _output/${{ matrix.arch }}
-    
+
       - name: Derive kernel # for arm64, otherwise "find: ‘/kernels/arm64//boot/’: No such file or directory"
         id: kernel
         run: |
@@ -112,5 +112,4 @@ jobs:
           test-name: huatuo-run
           cmd: |
             echo "================ Test in VM [$(uname -a)] ================"
-            chmod +x /host/build/ci/test-in-vm.sh
-            sh -c "/host/build/ci/test-in-vm.sh ${{ matrix.arch }}"
+            bash -c "/host/build/ci/test-in-vm.sh ${{ matrix.arch }}"
