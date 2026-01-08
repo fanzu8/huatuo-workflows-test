@@ -8,20 +8,21 @@ LIBVIRT_IMAGE_DIR=/var/lib/libvirt/images
 CLOUD_USER_DATA=/tmp/user-data
 VM_IP=192.168.122.100
 
-# Set qcow2 image based on os distro
+# Handle different os distro
 case "$OS_DISTRO" in
   ubuntu*)
     u_version=${OS_DISTRO#ubuntu}
     QCOW2_IMAGE=ubuntu-${u_version}-server-cloudimg-amd64.img
     ;;
+  centos*)
+    # TODO:
+    ;;
 esac
-
 
 # Create ssh key pair for passwordless login
 rm -f ~/.ssh/id_ed25519
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -q -N ""
 HOST_PUBKEY=$(cat ~/.ssh/id_ed25519.pub)
-
 
 # Create cloud-init user-data
 cat <<EOF > ${CLOUD_USER_DATA}
@@ -49,13 +50,12 @@ growpart:
   ignore_growroot_disabled: false
 EOF
 
-
 # Download huatuo/os-distro-test and decompress image
 docker pull huatuo/os-distro-test:${OS_DISTRO}.amd64
 cid=$(docker create huatuo/os-distro-test:${OS_DISTRO}.amd64)
 docker cp ${cid}:/data/${QCOW2_IMAGE}.zst .
 zstd --decompress -f --rm --threads=0 ${QCOW2_IMAGE}.zst
-qemu-img resize ${LIBVIRT_IMAGE_DIR}/${QCOW2_IMAGE} 10G
+qemu-img resize ${QCOW2_IMAGE} 10G
 sudo mkdir -p ${LIBVIRT_IMAGE_DIR}
 sudo mv ${QCOW2_IMAGE} ${LIBVIRT_IMAGE_DIR}/
 sudo chown libvirt-qemu:kvm ${LIBVIRT_IMAGE_DIR}/${QCOW2_IMAGE}

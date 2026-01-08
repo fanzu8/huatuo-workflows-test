@@ -1,11 +1,13 @@
 #!/bin/bash
 
-OS_DISTRO=${1:-ubuntu24.04}
-
-# Install dependencies
+# Handle different os distro
 case "$OS_DISTRO" in
   ubuntu*)
+    # Install dependencies
     sudo apt-get update -y
     sudo apt-get install -y cloud-image-utils virt-manager
+    ;;
+  centos*)
+    # TODO:
     ;;
 esac
