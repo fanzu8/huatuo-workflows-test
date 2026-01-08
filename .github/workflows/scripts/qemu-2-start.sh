@@ -1,11 +1,20 @@
 #!/bin/bash
 set -e
 
-OS_DISTRO=ubuntu24.04
 QCOW2_IMAGE=ubuntu-24.04-server-cloudimg-amd64.img
+LIBVIRT_IMAGE_DIR=/var/lib/libvirt/images
 CLOUD_USER_DATA=/tmp/user-data
 VM_NAME="huatuo-os-distro-test-vm"
 VM_IP=192.168.122.100
+
+OS_DISTRO=${1:-ubuntu24.04}
+case "$OS_DISTRO" in
+  ubuntu*)
+    u_version=${OS_DISTRO#ubuntu}
+    QCOW2_IMAGE=ubuntu-${u_version}-server-cloudimg-amd64.img
+    ;;
+esac
+
 
 # Create ssh key pair for passwordless login
 rm -f ~/.ssh/id_ed25519
@@ -41,14 +50,13 @@ EOF
 
 
 # Download huatuo/os-distro-test and decompress image
-docker pull huatuo/os-distro-test:ubuntu24.04.amd64
-cid=$(docker create huatuo/os-distro-test:ubuntu24.04.amd64)
+docker pull huatuo/os-distro-test:${OS_DISTRO}.amd64
+cid=$(docker create huatuo/os-distro-test:${OS_DISTRO}.amd64)
 docker cp ${cid}:/data/${QCOW2_IMAGE}.zst .
 zstd --decompress -f --rm --threads=0 ${QCOW2_IMAGE}.zst
-sudo mkdir -p /var/lib/libvirt/images
-sudo cp ${QCOW2_IMAGE} /var/lib/libvirt/images/
-# sudo chown libvirt-qemu:kvm /var/lib/libvirt/images/${QCOW2_IMAGE}
-
+sudo mkdir -p ${LIBVIRT_IMAGE_DIR}
+sudo mv ${QCOW2_IMAGE} ${LIBVIRT_IMAGE_DIR}/
+sudo chown libvirt-qemu:kvm ${LIBVIRT_IMAGE_DIR}/${QCOW2_IMAGE}
 
 # Bind mac address to vm ip
 sudo virsh net-update default add ip-dhcp-host \
@@ -66,7 +74,7 @@ sudo virt-install \
   --cloud-init user-data=${CLOUD_USER_DATA} \
   --graphics none \
   --network bridge=virbr0,model=virtio,mac='4A:6F:6C:69:6E:2E' \
-  --disk /var/lib/libvirt/images/${QCOW2_IMAGE},size=10,bus=virtio,cache=none,format=qcow2 \
+  --disk ${LIBVIRT_IMAGE_DIR}/${QCOW2_IMAGE},size=10,bus=virtio,cache=none,format=qcow2 \
   --import --noautoconsole >/dev/null
 
 # Wait for vm to be ready
@@ -84,5 +92,5 @@ if [ "$VM_IS_READY" -ne 1 ]; then
   exit 1
 fi
 
-# vm is ready
-echo "========= vm ${VM_NAME} is ready =========="
+# VM is ready
+echo "========= VM ${OS_DISTRO} ${VM_NAME} is ready =========="
