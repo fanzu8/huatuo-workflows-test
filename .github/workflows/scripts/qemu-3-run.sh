@@ -1,9 +1,20 @@
 #!/bin/bash
-set -euo pipefail
+set -Eeuo pipefail
 
-uname --all
-go version || true
-docker version || true
+echo "==================== SYSTEM INFO ===================="
+uname -a || true
 
-systemctl status || true
-systemctl status docker
+if [ -f /etc/os-release ]; then
+  cat /etc/os-release
+fi
+
+echo "------ CPU / Memory / Network / Disk -------"
+nproc || true
+free -h || true
+ip addr || true
+ip route || true
+df -h || true
+
+echo "==================== TOOLCHAIN ======================="
+go version 2>/dev/null || echo "go: not installed"
+docker version 2>/dev/null || echo "docker: not installed"
