@@ -14,8 +14,12 @@ case "$OS_DISTRO" in
     u_version=${OS_DISTRO#ubuntu}
     QCOW2_IMAGE=ubuntu-${u_version}-server-cloudimg-amd64.img
     ;;
-  centos*)
-    # TODO:
+#   centos*)
+#     # TODO:
+  *)
+    echo "[ERROR] Unsupported OS distro: '$OS_DISTRO'" >&2
+    echo "[ERROR] Supported distros: ubuntu*" >&2
+    exit 1
     ;;
 esac
 

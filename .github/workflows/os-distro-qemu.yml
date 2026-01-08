@@ -42,4 +42,4 @@ jobs:
           -o StrictHostKeyChecking=no \
           -o UserKnownHostsFile=/dev/null \
           root@${VM_NAME} "bash -s -- ${{ matrix.os }}" \
-          < .github/workflows/scripts/qemu-2-run.sh
+          < .github/workflows/scripts/qemu-2-run-in-vm.sh
