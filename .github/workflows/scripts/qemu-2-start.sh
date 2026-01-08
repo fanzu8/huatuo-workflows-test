@@ -55,6 +55,7 @@ docker pull huatuo/os-distro-test:${OS_DISTRO}.amd64
 cid=$(docker create huatuo/os-distro-test:${OS_DISTRO}.amd64)
 docker cp ${cid}:/data/${QCOW2_IMAGE}.zst .
 zstd --decompress -f --rm --threads=0 ${QCOW2_IMAGE}.zst
+qemu-img resize ${LIBVIRT_IMAGE_DIR}/${QCOW2_IMAGE} 10G
 sudo mkdir -p ${LIBVIRT_IMAGE_DIR}
 sudo mv ${QCOW2_IMAGE} ${LIBVIRT_IMAGE_DIR}/
 sudo chown libvirt-qemu:kvm ${LIBVIRT_IMAGE_DIR}/${QCOW2_IMAGE}
@@ -75,8 +76,8 @@ sudo virt-install \
   --memballoon model=virtio \
   --cloud-init user-data=${CLOUD_USER_DATA} \
   --graphics none \
-  --network bridge=virbr0,model=virtio,mac='4A:6F:6C:69:6E:2E' \
-  --disk ${LIBVIRT_IMAGE_DIR}/${QCOW2_IMAGE},size=10,bus=virtio,cache=none,format=qcow2 \
+  --network network=default,model=virtio,mac='4A:6F:6C:69:6E:2E' \
+  --disk ${LIBVIRT_IMAGE_DIR}/${QCOW2_IMAGE},bus=virtio,cache=none,format=qcow2 \
   --import --noautoconsole >/dev/null
 
 # Wait for vm to be ready
