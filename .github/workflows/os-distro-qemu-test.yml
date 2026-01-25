@@ -9,18 +9,19 @@ on:
 jobs:
   # start VMs and test in them
   qemu-vm:
-    name: Test in VM (${{ matrix.os }})
+    name: Test in VM (${{ matrix.arch }} ${{ matrix.os }})
     runs-on: ubuntu-24.04
     env:
       VM_NAME: "huatuo-os-distro-test-vm"
     strategy:
       fail-fast: false
       matrix:
-        # os: [ubuntu24.04, ubuntu22.04, ubuntu20.04] # osinfo-query os
-        os: [ubuntu24.04] # osinfo-query os
-        arch: 
-          - amd64
         include:
+          # amd64
+          - arch: amd64
+            os: ubuntu24.04
+
+          # arm64
           - arch: arm64
             os: ubuntu24.04
 

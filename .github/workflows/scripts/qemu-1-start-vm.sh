@@ -97,7 +97,7 @@ function prepare_qcow2_image() {
         echo -e "prepare cloud-init iso [${CLOUD_INIT_ISO}] for ${ARCH}"
         genisoimage -output "$CLOUD_INIT_ISO" -volid cidata -joliet -rock \
             "$CLOUD_USER_DATA" "$CLOUD_META_DATA"
-        chown libvirt-qemu:kvm "$CLOUD_INIT_ISO"
+        sudo chown libvirt-qemu:kvm "$CLOUD_INIT_ISO"
     fi
 
     sudo qemu-img resize "${LIBVIRT_IMAGE_DIR}/${OS_IMAGE}" ${VM_DISK_SIZE}
