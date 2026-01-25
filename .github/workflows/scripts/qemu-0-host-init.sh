@@ -1,19 +1,21 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-OS_DISTRO=${1:-ubuntu24.04}
+ARCH=${1:-amd64}
+OS_DISTRO=${2:-ubuntu24.04}
 
 # Handle different os distro
 case "$OS_DISTRO" in
   ubuntu*)
     # Install dependencies
     sudo apt-get update -y
-    sudo apt-get install -y cloud-image-utils virt-manager qemu-utils
+    sudo apt-get install -y cloud-image-utils virt-manager qemu-utils qemu-system-arm
     ;;
 #   centos*)
 #     # TODO:
   *)
-    echo "[ERROR] Unsupported OS distro: '$OS_DISTRO'" >&2
-    echo "[ERROR] Supported distros: ubuntu*" >&2
+    echo -e "❌ Unsupported OS distro: '$OS_DISTRO'" >&2
+    echo -e " Supported distros: ubuntu*" >&2
     exit 1
     ;;
 esac
