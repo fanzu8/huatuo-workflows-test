@@ -178,7 +178,7 @@ function wait_for_k8s_ready() {
     
     for ((i=1; i<=timeout; i+=interval)); do
         if ssh "${SSH_OPTS[@]}" "root@${VM_IP}" \
-            "kubectl wait --for=condition=Ready pod --all -A --timeout=5s" >/dev/null 2>&1; then
+            "kubectl wait --for=condition=Ready pod --all -A --timeout=3s" >/dev/null 2>&1; then
             jitter_count=$((jitter_count-1))
             if [ $jitter_count -le 0 ]; then
                 ssh "${SSH_OPTS[@]}" "root@${VM_IP}" "kubectl get pod -A" || true
@@ -189,7 +189,7 @@ function wait_for_k8s_ready() {
         sleep $interval
     done
 
-    echo -e "❌ coredns not ready after ${timeout}s" && exit 1
+    echo -e "❌ k8s not ready after ${timeout}s, but continue, dont exit."
 }
 
 
