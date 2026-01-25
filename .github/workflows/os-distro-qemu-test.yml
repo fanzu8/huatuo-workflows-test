@@ -22,8 +22,7 @@ jobs:
           - amd64
         include:
           - arch: arm64
-            os:
-              - ubuntu24.04
+            os: ubuntu24.04
 
     steps:
       - name: Checkout
