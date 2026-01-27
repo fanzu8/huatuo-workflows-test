@@ -21,7 +21,7 @@ case "$OS_DISTRO" in
 ubuntu*)
 	# Install dependencies
 	sudo apt-get update -y
-	sudo apt-get install -y cloud-image-utils virt-manager qemu-utils qemu-system-arm qemu-kvm
+	sudo apt-get install -y cloud-image-utils virt-manager qemu-utils qemu-system-arm
 	;;
 *)
 	echo -e "❌ Unsupported OS distro: '$OS_DISTRO'" >&2
