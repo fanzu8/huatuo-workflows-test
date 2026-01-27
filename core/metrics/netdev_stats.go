@@ -21,18 +21,17 @@ package collector
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 
 	"huatuo-bamai/internal/conf"
 	"huatuo-bamai/internal/log"
 	"huatuo-bamai/internal/pod"
+	"huatuo-bamai/internal/procfs"
 	"huatuo-bamai/pkg/metric"
 	"huatuo-bamai/pkg/tracing"
 
 	"github.com/jsimonetti/rtnetlink"
 	"github.com/mdlayher/netlink"
-	"github.com/prometheus/procfs"
 )
 
 type (
@@ -108,7 +107,9 @@ func (c *netdevCollector) netlinkStats(container *pod.Container, filter *fieldFi
 		pid = container.InitPid
 	}
 
-	file, err := os.Open(filepath.Join("/proc", strconv.Itoa(pid), "ns/net"))
+	path := procfs.Path(strconv.Itoa(pid), "ns/net")
+
+	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}

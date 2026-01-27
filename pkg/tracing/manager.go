@@ -28,6 +28,9 @@ type MgrTracingEvent struct {
 
 func NewMgrTracingEvent(blackListed []string) (*MgrTracingEvent, error) {
 	tracings, err := NewRegister(blackListed)
+	if err != nil {
+		return nil, err
+	}
 
 	tracingEvents := make(map[string]*EventTracing)
 	for key, trace := range tracings {
@@ -37,7 +40,7 @@ func NewMgrTracingEvent(blackListed []string) (*MgrTracingEvent, error) {
 		tracingEvents[key] = NewTracingEvent(trace, key)
 	}
 
-	return &MgrTracingEvent{tracingEvents: tracingEvents, blackListed: blackListed}, err
+	return &MgrTracingEvent{tracingEvents: tracingEvents, blackListed: blackListed}, nil
 }
 
 func (mgr *MgrTracingEvent) MgrTracingEventStartAll() error {

@@ -10,7 +10,7 @@ jobs:
   # start VMs and test in them
   qemu-vm:
     name: Test in VM (${{ matrix.arch }} ${{ matrix.os }})
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-24.04 # ${{ matrix.runner }}
     env:
       VM_NAME: "huatuo-os-distro-test-vm"
     strategy:

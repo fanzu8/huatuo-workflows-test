@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+
+	"huatuo-bamai/pkg/types"
 )
 
 const (
@@ -43,35 +45,38 @@ func RegisterEventTracing(name string, factory func() (*EventTracingAttr, error)
 }
 
 func NewRegister(blackListed []string) (map[string]*EventTracingAttr, error) {
-	var errs []error
+	var err error
+
 	tracingOnce.Do(func() {
 		tracingMap := make(map[string]*EventTracingAttr)
-		var err error
 		var attr *EventTracingAttr
 
-		for key, factory := range factories {
-			if slices.Contains(blackListed, key) {
+		for name, factory := range factories {
+			if slices.Contains(blackListed, name) {
 				continue
 			}
 
 			attr, err = factory()
 			if err != nil {
-				errs = append(errs, fmt.Errorf("create [%s]: %w", key, err))
-				continue
+				if errors.Is(err, types.ErrNotSupported) {
+					continue
+				}
+
+				err = fmt.Errorf("traing name: %s, err: [%w]", name, err)
+				return
 			}
 			if attr.Flag&(FlagTracing|FlagMetric) == 0 {
-				errs = append(errs, fmt.Errorf("invalid flag [%s]: %w", key, err))
-				continue
+				err = fmt.Errorf("traing name: %s, invalid flag", name)
+				return
 			}
-			tracingMap[key] = attr
+			tracingMap[name] = attr
 		}
 		tracingEventAttrMap = tracingMap
 	})
 
-	var err error
-	if len(errs) > 0 {
-		err = errors.Join(errs...)
+	if err != nil {
+		return nil, err
 	}
 
-	return tracingEventAttrMap, err
+	return tracingEventAttrMap, nil
 }

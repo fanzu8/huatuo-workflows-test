@@ -26,10 +26,9 @@ import (
 
 	"huatuo-bamai/internal/log"
 	"huatuo-bamai/internal/pod"
+	"huatuo-bamai/internal/procfs"
 	"huatuo-bamai/pkg/metric"
 	"huatuo-bamai/pkg/tracing"
-
-	"github.com/prometheus/procfs"
 )
 
 type sockstatCollector struct{}
@@ -74,15 +73,15 @@ func (c *sockstatCollector) Update() ([]*metric.Data, error) {
 }
 
 func (c *sockstatCollector) procStatMetrics(container *pod.Container) ([]*metric.Data, error) {
-	pid := 1 // host
+	pid := 1
 	if container != nil {
 		pid = container.InitPid
 	}
 
 	// NOTE: non-standard using procfs.NewFS.
-	fs, err := procfs.NewFS(filepath.Join("/proc", strconv.Itoa(pid)))
+	fs, err := procfs.NewFS(filepath.Join(procfs.DefaultPath(), strconv.Itoa(pid)))
 	if err != nil {
-		return nil, fmt.Errorf("failed to open procfs: %w", err)
+		return nil, err
 	}
 
 	// If IPv4 and/or IPv6 are disabled on this kernel, handle it gracefully.
@@ -92,7 +91,7 @@ func (c *sockstatCollector) procStatMetrics(container *pod.Container) ([]*metric
 	case errors.Is(err, os.ErrNotExist):
 		log.Debug("IPv4 sockstat statistics not found, skipping")
 	default:
-		return nil, fmt.Errorf("failed to get IPv4 sockstat data: %w", err)
+		return nil, err
 	}
 
 	if stat == nil { // nothing to do.
@@ -153,7 +152,7 @@ func (c *sockstatCollector) procStatMetrics(container *pod.Container) ([]*metric
 		// Also export mem_bytes values for sockets which have a mem value
 		// stored in pages.
 		if p.Mem != nil {
-			v := *p.Mem * skMemQuantum
+			v := *p.Mem * 4096
 			pairs = append(pairs, ssPair{
 				name: "mem_bytes",
 				v:    &v,

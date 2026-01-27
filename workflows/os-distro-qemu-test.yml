@@ -1,0 +1,63 @@
+name: OS Distro QEMU Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # start VMs and test in them
+  qemu-vm:
+    name: Test in VM (${{ matrix.arch }} ${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    env:
+      VM_NAME: "huatuo-os-distro-test-vm"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # amd64
+          - arch: amd64
+            os: ubuntu24.04
+            runner: ubuntu-24.04
+          - arch: amd64
+            os: ubuntu22.04
+            runner: ubuntu-24.04
+          - arch: amd64
+            os: ubuntu20.04
+            runner: ubuntu-24.04
+
+          # arm64
+          - arch: arm64
+            os: ubuntu24.04
+            runner: ubuntu-24.04-arm
+          - arch: arm64
+            os: ubuntu22.04
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Host Init
+        run: |
+          .github/workflows/scripts/qemu-0-host-init.sh ${{ matrix.arch }} ${{ matrix.os }}
+
+      - name: Start VM
+        timeout-minutes: 30
+        run: |
+          .github/workflows/scripts/qemu-1-start-vm.sh ${{ matrix.arch }} ${{ matrix.os }} ${VM_NAME}
+
+      - name: Run in VM
+        timeout-minutes: 120
+        run: |
+          ssh \
+          -i ${HOME}/.ssh/id_ed25519_vm \
+          -o StrictHostKeyChecking=no \
+          -o UserKnownHostsFile=/dev/null \
+          root@${VM_NAME} "bash -s -- ${{ matrix.arch }} ${{ matrix.os }}" \
+          < .github/workflows/scripts/qemu-2-run-in-vm.sh

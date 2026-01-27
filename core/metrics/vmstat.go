@@ -22,6 +22,7 @@ import (
 
 	"huatuo-bamai/internal/conf"
 	"huatuo-bamai/internal/log"
+	"huatuo-bamai/internal/procfs"
 	"huatuo-bamai/pkg/metric"
 	"huatuo-bamai/pkg/tracing"
 )
@@ -70,7 +71,7 @@ func (c *vmStatCollector) Update() ([]*metric.Data, error) {
 	filter := newFieldFilter(conf.Get().MetricCollector.Vmstat.Excluded,
 		conf.Get().MetricCollector.Vmstat.Included)
 
-	file, err := os.Open("/proc/vmstat")
+	file, err := os.Open(procfs.Path("vmstat"))
 	if err != nil {
 		return nil, err
 	}

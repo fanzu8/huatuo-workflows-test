@@ -31,11 +31,12 @@ import (
 	"huatuo-bamai/internal/cgroups"
 	"huatuo-bamai/internal/conf"
 	"huatuo-bamai/internal/log"
+	"huatuo-bamai/internal/pidfile"
 	"huatuo-bamai/internal/pod"
+	"huatuo-bamai/internal/procfs"
 	"huatuo-bamai/internal/services"
 	"huatuo-bamai/internal/storage"
 	"huatuo-bamai/internal/utils/executil"
-	"huatuo-bamai/internal/utils/pidutil"
 	"huatuo-bamai/pkg/tracing"
 
 	"github.com/urfave/cli/v2"
@@ -46,10 +47,10 @@ func mainAction(ctx *cli.Context) error {
 		return fmt.Errorf("invalid param %v", ctx.Args())
 	}
 
-	if err := pidutil.LockPidFile(ctx.App.Name); err != nil {
+	if err := pidfile.Lock(ctx.App.Name); err != nil {
 		return fmt.Errorf("failed to lock pid file: %w", err)
 	}
-	defer pidutil.RemovePidFile(ctx.App.Name)
+	defer pidfile.Remove(ctx.App.Name)
 
 	// init cpu quota
 	cgr, err := cgroups.NewCgroupManager()
@@ -82,6 +83,7 @@ func mainAction(ctx *cli.Context) error {
 		LocalPath:         conf.Get().Storage.LocalFile.Path,
 		LocalMaxRotation:  conf.Get().Storage.LocalFile.MaxRotation,
 		LocalRotationSize: conf.Get().Storage.LocalFile.RotationSize,
+		StorageDisabled:   ctx.Bool("disable-storage"),
 		Region:            conf.Region,
 	}
 
@@ -94,9 +96,10 @@ func mainAction(ctx *cli.Context) error {
 	}
 
 	podListInitCtx := pod.PodContainerInitCtx{
-		PodReadOnlyPort:   conf.Get().Pod.KubeletReadOnlyPort,
-		PodAuthorizedPort: conf.Get().Pod.KubeletAuthorizedPort,
-		PodClientCertPath: conf.Get().Pod.KubeletClientCertPath,
+		PodReadOnlyPort:      conf.Get().Pod.KubeletReadOnlyPort,
+		PodAuthorizedPort:    conf.Get().Pod.KubeletAuthorizedPort,
+		PodClientCertPath:    conf.Get().Pod.KubeletClientCertPath,
+		PodContainerDisabled: ctx.Bool("disable-kubelet"),
 	}
 
 	if err := pod.ContainerPodMgrInit(&podListInitCtx); err != nil {
@@ -106,12 +109,12 @@ func mainAction(ctx *cli.Context) error {
 	blacklisted := conf.Get().BlackList
 	prom, err := InitMetricsCollector(blacklisted, conf.Region)
 	if err != nil {
-		log.Errorf("InitMetricsCollector: %v", err)
+		return err
 	}
 
 	mgr, err := tracing.NewMgrTracingEvent(blacklisted)
 	if err != nil {
-		log.Errorf("NewMgrTracingEvent: %v", err)
+		return err
 	}
 
 	if err := mgr.MgrTracingEventStartAll(); err != nil {
@@ -231,6 +234,16 @@ func main() {
 			Required: true,
 			Usage:    "the host and containers are in this region",
 		},
+		&cli.BoolFlag{
+			Name:  "disable-kubelet",
+			Value: false,
+			Usage: "disable kubelet(testing only). Not recommended for production use.",
+		},
+		&cli.BoolFlag{
+			Name:  "disable-storage",
+			Value: false,
+			Usage: "disable storage backends(testing only). Not recommended for production use.",
+		},
 		&cli.StringSliceFlag{
 			Name:  "disable-tracing",
 			Usage: "disable tracing. This is related to Blacklist in config, and complement each other",
@@ -242,6 +255,10 @@ func main() {
 		&cli.BoolFlag{
 			Name:  "dry-run",
 			Usage: "for loading tests, exit gracefully",
+		},
+		&cli.StringFlag{
+			Name:  "procfs-prefix",
+			Usage: "procfs prefix for default mountpoint e.g. /proc /sys and /dev",
 		},
 	}
 
@@ -282,6 +299,11 @@ func main() {
 
 			conf.Set("Blacklist", definedTracers)
 			log.Infof("The tracer black list by cli: %v", conf.Get().BlackList)
+		}
+
+		// mountpoint (test only)
+		if ctx.String("procfs-prefix") != "" {
+			procfs.RootPrefix(ctx.String("procfs-prefix"))
 		}
 
 		if ctx.Bool("log-debug") {

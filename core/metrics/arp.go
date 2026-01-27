@@ -15,22 +15,15 @@
 package collector
 
 import (
-	"bufio"
-	"fmt"
-	"os"
 	"strconv"
-	"strings"
 
 	"huatuo-bamai/internal/pod"
+	"huatuo-bamai/internal/procfs"
 	"huatuo-bamai/pkg/metric"
 	"huatuo-bamai/pkg/tracing"
 )
 
-var arpCachePath = "/proc/net/stat/arp_cache"
-
-type arpCollector struct {
-	metric []*metric.Data
-}
+type arpCollector struct{}
 
 func init() {
 	tracing.RegisterEventTracing("arp", newArp)
@@ -38,87 +31,50 @@ func init() {
 
 func newArp() (*tracing.EventTracingAttr, error) {
 	return &tracing.EventTracingAttr{
-		TracingData: &arpCollector{
-			metric: []*metric.Data{
-				metric.NewGaugeData("entries", 0, "host init namespace", nil),
-				metric.NewGaugeData("total", 0, "arp_cache entries", nil),
-			},
-		},
-		Flag: tracing.FlagMetric,
+		TracingData: &arpCollector{},
+		Flag:        tracing.FlagMetric,
 	}, nil
 }
 
-// NetStat contains statistics for all the counters from one file.
-// should be exported for /proc/net/stat/ndisc_cache
-type NetStat struct {
-	Stats    map[string]uint64
-	Filename string
-}
-
-func parseNetstatCache(filePath string) (NetStat, error) {
-	netStat := NetStat{
-		Stats: make(map[string]uint64),
-	}
-
-	file, err := os.Open(filePath)
+func nodeArpCacheEntries() ([]*metric.Data, error) {
+	count, err := CountLines(procfs.Path("1/net/arp"))
 	if err != nil {
-		return netStat, err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	scanner.Scan()
-
-	// First string is always a header for stats
-	var headers []string
-	headers = append(headers, strings.Fields(scanner.Text())...)
-
-	// Fast path ...
-	scanner.Scan()
-	for num, counter := range strings.Fields(scanner.Text()) {
-		value, err := strconv.ParseUint(counter, 16, 64)
-		if err != nil {
-			return NetStat{}, err
-		}
-		netStat.Stats[headers[num]] = value
+		return nil, err
 	}
 
-	return netStat, nil
-}
-
-func (c *arpCollector) updateHostArp() []*metric.Data {
-	count, err := fileLineCounter("/proc/1/net/arp")
+	cache, err := procfs.NetArpCache()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	stat, err := parseNetstatCache(arpCachePath)
-	if err != nil {
-		return nil
-	}
-
-	c.metric[0].Value = float64(count - 1)
-	c.metric[1].Value = float64(stat.Stats["entries"])
-
-	return c.metric
+	return []*metric.Data{
+		metric.NewGaugeData("entries", float64(count-1), "host init namespace", nil),
+		metric.NewGaugeData("total", float64(cache.Stats["entries"]), "all entries in arp_cache for containers and host netns", nil),
+	}, nil
 }
 
 func (c *arpCollector) Update() ([]*metric.Data, error) {
-	data := []*metric.Data{}
+	var data []*metric.Data
 
 	containers, err := pod.NormalContainers()
 	if err != nil {
-		return nil, fmt.Errorf("GetNormalContainers: %w", err)
+		return nil, err
 	}
 
 	for _, container := range containers {
-		count, err := fileLineCounter(fmt.Sprintf("/proc/%d/net/arp", container.InitPid))
+		count, err := CountLines(procfs.Path(strconv.Itoa(container.InitPid), "net/arp"))
 		if err != nil {
-			return nil, err
+			// return data collected
+			return data, err
 		}
 
-		data = append(data, metric.NewContainerGaugeData(container, "entries", float64(count-1), "arp for container and host", nil))
+		data = append(data, metric.NewContainerGaugeData(container, "entries", float64(count-1), "arp entries in container netns", nil))
 	}
 
-	return append(data, c.updateHostArp()...), nil
+	entries, err := nodeArpCacheEntries()
+	if err != nil {
+		return data, err
+	}
+
+	return append(data, entries...), nil
 }

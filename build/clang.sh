@@ -1,7 +1,22 @@
 #!/bin/sh
+#
+# Copyright 2025 The HuaTuo Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
 usage() {
-    echo "OVERVIEW: HuaTuo BPF compiler tool (clang LLVM)
+	echo "OVERVIEW: HuaTuo BPF compiler tool (clang LLVM)
 
 USAGE: clang.sh -s <source.c> -o <output.o> -I [includes] -C '[compile_options]'
 EXAMPLE:
@@ -32,37 +47,35 @@ ARCH=$(uname --machine | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/')
 COMPILE_OPTIONS=
 DEFAULT_COMPILE_OPTIONS="-Wall -O2 -g -target bpf -D__TARGET_ARCH_${ARCH} -mcpu=v1 -c"
 
-while getopts 'hs:o:C:I:' opt
-do
-    case ${opt} in
-        s)
-            [ -n "${SRC}" ] && echo "-s(source) required 1 file (bpf.c)" && exit 1
-            SRC=${OPTARG}
-            ;;
-        o)
-            [ -n "${OBJ}" ] && echo "-o(output) required 1 file (output.o)" && exit 1
-            OBJ=${OPTARG}
-            ;;
-        C)
-            COMPILE_OPTIONS=${OPTARG}
-            ;;
-        I)
-            INCLUDES="${INCLUDES} -I ${OPTARG}"
-            ;;
-        h)
-            usage
-            exit
-            ;;
-        ?)
-            usage
-            exit 1
-            ;;
-    esac
+while getopts 'hs:o:C:I:' opt; do
+	case ${opt} in
+	s)
+		[ -n "${SRC}" ] && echo "-s(source) required 1 file (bpf.c)" && exit 1
+		SRC=${OPTARG}
+		;;
+	o)
+		[ -n "${OBJ}" ] && echo "-o(output) required 1 file (output.o)" && exit 1
+		OBJ=${OPTARG}
+		;;
+	C)
+		COMPILE_OPTIONS=${OPTARG}
+		;;
+	I)
+		INCLUDES="${INCLUDES} -I ${OPTARG}"
+		;;
+	h)
+		usage
+		exit
+		;;
+	?)
+		usage
+		exit 1
+		;;
+	esac
 done
 
 [ -z "${SRC}" ] && echo -e "-s must be specified, such as -c example.bpf.c \n\n $(usage)" && exit 1
 [ -z "${OBJ}" ] && echo -e "-o must be specified, such as -o example.o \n\n $(usage)" && exit 1
-
 
 # Note: parameter ${DEFAULT_COMPILE_OPTIONS} will be overwritten by ${COMPILE_OPTIONS} in ${OPTIONS}
 OPTIONS="${DEFAULT_COMPILE_OPTIONS} ${COMPILE_OPTIONS}"

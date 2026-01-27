@@ -56,7 +56,7 @@ func NewCollectorManager(blackListed []string, region string) (*CollectorManager
 
 	tracings, err := tracing.NewRegister(blackListed)
 	if err != nil {
-		log.Errorf("create collector manager: %v", err)
+		return nil, err
 	}
 
 	collectors := make(map[string]*CollectorWrapper)

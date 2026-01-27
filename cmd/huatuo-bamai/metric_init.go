@@ -26,6 +26,9 @@ var promNamespace = "huatuo_bamai"
 // InitMetricsCollector creates a new MetricsCollector instance.
 func InitMetricsCollector(blackListed []string, region string) (*prometheus.Registry, error) {
 	nc, err := metric.NewCollectorManager(blackListed, region)
+	if err != nil {
+		return nil, err
+	}
 
 	promRegistry := prometheus.NewRegistry()
 	promRegistry.MustRegister(
@@ -34,5 +37,5 @@ func InitMetricsCollector(blackListed []string, region string) (*prometheus.Regi
 		collectors.NewProcessCollector(
 			collectors.ProcessCollectorOpts{Namespace: promNamespace}))
 
-	return promRegistry, err
+	return promRegistry, nil
 }

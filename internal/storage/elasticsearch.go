@@ -49,7 +49,6 @@ func newESClient(addr, username, password, index string) (*esClient, error) {
 		},
 	}
 
-	//nolint:typecheck
 	client, err := elasticsearch.NewClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("new client: %w", err)

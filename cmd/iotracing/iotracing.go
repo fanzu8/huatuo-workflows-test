@@ -27,7 +27,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -36,12 +35,10 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"huatuo-bamai/internal/bpf"
-	"huatuo-bamai/internal/command/container"
 	"huatuo-bamai/internal/log"
-	"huatuo-bamai/internal/pod"
 	"huatuo-bamai/internal/symbol"
 	"huatuo-bamai/internal/utils/bytesutil"
-	"huatuo-bamai/internal/utils/procfsutil"
+	"huatuo-bamai/internal/utils/executil"
 	"huatuo-bamai/pkg/types"
 )
 
@@ -53,8 +50,8 @@ var tracingCmd ioTracing
 
 // IOStatusData contains IO status information.
 type IOStatusData struct {
-	ProcessData []ProcessData `json:"process_data"`
-	IOStack     []IOStack     `json:"io_stack"`
+	ProcessData []ProcFileData `json:"process_io_data"`
+	IOStack     []IOStack      `json:"timeout_io_stack"`
 }
 
 // IOStack records io_schedule backtrace.
@@ -66,8 +63,8 @@ type IOStack struct {
 	Stack             symbol.Stack `json:"stack"`
 }
 
-// ProcessData records process information.
-type ProcessData struct {
+// ProcFileData records process information.
+type ProcFileData struct {
 	Pid               uint32   `json:"pid"`
 	Comm              string   `json:"comm"`
 	ContainerHostname string   `json:"container_hostname"`
@@ -76,19 +73,17 @@ type ProcessData struct {
 	DiskRead          uint64   `json:"disk_read"`
 	DiskWrite         uint64   `json:"disk_write"`
 	FileStat          []string `json:"file_stat"`
-	FileCount         uint32   `json:"file_count"`
+	FileCount         uint64   `json:"file_count"`
 }
 
 type ioTracing struct {
-	ioData           IOStatusData
-	config           ioConfig
-	cssToContainerID map[uint64]string
-	containers       map[string]*pod.Container
-	devices          map[string]any
+	ioData  IOStatusData
+	config  ioConfig
+	filters map[string]any
 }
 
 type ioConfig struct {
-	periodSecond       uint64
+	durationSecond     uint64
 	scheduleThreshold  uint64 // ms
 	maxFilesPerProcess uint64
 	maxProcess         uint64
@@ -104,8 +99,8 @@ type LatencyInfo struct {
 	SumQ2C uint64
 }
 
-// IOBpfData contains BPF data for io_source_map.
-type IOBpfData struct {
+// IOData contains BPF data for io_source_map.
+type IOData struct {
 	Tgid            uint32
 	Pid             uint32
 	Dev             uint32
@@ -118,10 +113,7 @@ type IOBpfData struct {
 	Blkcg           uint64
 	Latency         LatencyInfo
 	Comm            [16]byte
-	FileName        [64]byte
-	Dentry1Name     [64]byte
-	Dentry2Name     [64]byte
-	Dentry3Name     [64]byte
+	FilePath        [8][32]byte
 }
 
 // IODelayData contains IO schedule info from iodelay_perf_events.
@@ -136,9 +128,27 @@ type IODelayData struct {
 	Comm      [16]byte
 }
 
-type keyValue struct {
-	pid    uint32
-	ioSize uint64
+func (data *IOData) FilePathName() string {
+	names := make([]string, 0, len(data.FilePath))
+	for i := len(data.FilePath) - 1; i >= 0; i-- {
+		s := strings.TrimSpace(bytesutil.ToString(data.FilePath[i][:]))
+		if s == "" || s == "/" {
+			continue
+		}
+		names = append(names, s)
+	}
+	fileName := "/" + strings.Join(names, "/")
+
+	if data.InodeNum == 0 {
+		fileName = "[direct IO]"
+	}
+
+	// check 'iocb->ki_flags & IOCB_DIRECT' and '#define IOCB_DIRECT (1 << 2)'
+	if data.Flag&0x4 == 0x4 {
+		fileName += " [direct IO]"
+	}
+
+	return fileName
 }
 
 // parseDeviceNumbers
@@ -186,81 +196,29 @@ func parseDeviceNumbers(deviceStr string) ([]uint32, error) {
 	return deviceNums, nil
 }
 
-// getContainerByPid retrieves the container ID for a given process ID.
-func getContainerByPid(pid uint32) (string, error) {
-	cgroupPath := fmt.Sprintf("/proc/%d/cgroup", pid)
-	cgroupContext, err := os.ReadFile(cgroupPath)
-	if err != nil {
-		return "", fmt.Errorf("read /proc/%d/cgroup: %w", pid, err)
-	}
-	cgroupSlice := strings.Split(string(cgroupContext), "\n")
-	for _, s := range cgroupSlice {
-		if strings.Contains(s, "kubepods/burstable") {
-			// 11:devices:/kubepods/burstable/pode611e7d6-0e77-11ee-a314-08c0eb65d6a2/7b48bb51fb200e35221bfdd256a96a49b16dbe0be9a1019f3b5e0709d9ddefe2
-			// or
-			// 11:cpuset:/docker/538594e684780c9adf15ae982a9f973accaae9c0556ab037a3cc85656b1cbac4
-			id := strings.Split(s, "/")[4]
-			if len(id) != 64 {
-				continue
-			}
-			return id, nil
-		} else if strings.Contains(s, "/docker/") {
-			id := strings.Split(s, "/")[2]
-			if len(id) != 64 {
-				continue
-			}
-			return id, nil
-		}
-	}
-	return "", nil
-}
-
-// getCmdline retrieves the command line for a given process ID.
-func getCmdline(pid uint32) string {
-	cmdlinePath := fmt.Sprintf("/proc/%d/cmdline", pid)
-	cmdlineContext, err := os.ReadFile(cmdlinePath)
-	if err != nil {
-		return ""
-	}
-
-	cmdline := strings.ReplaceAll(string(cmdlineContext), "\x00", " ")
-	if len(cmdline) > 128 {
-		return cmdline[0:127]
-	}
-
-	return cmdline
-}
-
-// parseIOData parses IO data for a given process ID and file table.
-func parseIOData(pid uint32, fileTable *PriorityQueue) {
+// parseProcFileTable parses IO data for a given process ID and file table.
+func parseProcFileTable(pid uint32, files *PriorityQueue) ProcFileData {
 	var read, write, dread, dwrite uint64
-	var filesInfo string
+	var fileStat []string
 	var comm string
-	var ProcessData ProcessData
 
-	tableLength := fileTable.Len()
-	for i := uint64(0); i < uint64(tableLength); i++ {
-		data := heap.Pop(fileTable).(*IODataStat).Data
+	tableLength := uint64(files.Len())
+	for i := uint64(0); i < tableLength; i++ {
+		data := heap.Pop(files).(*IODataStat).Data
 
-		wbps := data.FsWriteBytes / tracingCmd.config.periodSecond
-		rbps := data.FsReadBytes / tracingCmd.config.periodSecond
-		dwbps := data.BlockWriteBytes / tracingCmd.config.periodSecond
-		drbps := data.BlockReadBytes / tracingCmd.config.periodSecond
+		wbps := data.FsWriteBytes / tracingCmd.config.durationSecond
+		rbps := data.FsReadBytes / tracingCmd.config.durationSecond
+		dwbps := data.BlockWriteBytes / tracingCmd.config.durationSecond
+		drbps := data.BlockReadBytes / tracingCmd.config.durationSecond
+
 		read += rbps
 		write += wbps
 		dread += drbps
 		dwrite += dwbps
 
-		ProcessData.FileCount++
 		if i > tracingCmd.config.maxFilesPerProcess {
 			continue
 		}
-
-		dir3 := bytesutil.ToString(data.Dentry3Name[:])
-		dir2 := bytesutil.ToString(data.Dentry2Name[:])
-		dir1 := bytesutil.ToString(data.Dentry1Name[:])
-		filename := bytesutil.ToString(data.FileName[:])
-		filepath := strings.TrimLeft(fmt.Sprintf("%s/%s/%s/%s", dir3, dir2, dir1, filename), "/")
 
 		var q2c, d2c uint64
 		if data.Latency.Count > 0 {
@@ -268,90 +226,46 @@ func parseIOData(pid uint32, fileTable *PriorityQueue) {
 			d2c = data.Latency.SumD2C / (data.Latency.Count * 1000)
 		}
 
-		if data.InodeNum == 0 {
-			filepath = "[direct IO]"
-		}
-		// check 'iocb->ki_flags & IOCB_DIRECT' and '#define IOCB_DIRECT (1 << 2)'
-		if data.Flag&0x4 == 0x4 {
-			filepath += " [direct IO]"
-		}
-
-		filesInfo = fmt.Sprintf("[%d:%d], fs_read=%db/s, fs_write=%db/s, disk_read=%db/s, disk_write=%db/s, q2c=%dus, d2c=%dus, inode=%d, %s",
-			data.Dev>>20&0xfff, data.Dev&0xfffff, rbps, wbps, drbps, dwbps, q2c, d2c, data.InodeNum, filepath)
+		stat := fmt.Sprintf("[%d:%d], fs_read=%db/s, fs_write=%db/s, disk_read=%db/s, disk_write=%db/s, q2c=%dus, d2c=%dus, inode=%d, %s",
+			data.Dev>>20&0xfff, data.Dev&0xfffff, rbps, wbps, drbps, dwbps, q2c, d2c, data.InodeNum, data.FilePathName())
 
 		// if data.Tgid == 0, it means we only catch the io from the block layer,so this is no filepath.
 		// so we need to show the container info
-		if data.Blkcg != 0 && data.Tgid == 0 {
-			if containerID, ok := tracingCmd.cssToContainerID[data.Blkcg]; ok {
-				if c, ok := tracingCmd.containers[containerID]; ok {
-					filesInfo += fmt.Sprintf(", container=%s", c.Name)
-				} else {
-					filesInfo += fmt.Sprintf(", containerID=%s", containerID)
-				}
-			}
-		}
-		ProcessData.FileStat = append(ProcessData.FileStat, filesInfo)
+		//
+		// if data.Blkcg != 0 && data.Tgid == 0 {
+		// 	if containerID, ok := tracingCmd.cssToContainerID[data.Blkcg]; ok {
+		// 		if c, ok := tracingCmd.containers[containerID]; ok {
+		// 			filesInfo += fmt.Sprintf(", container=%s", c.Name)
+		// 		} else {
+		// 			filesInfo += fmt.Sprintf(", containerID=%s", containerID)
+		// 		}
+		// 	}
+		// }
+		fileStat = append(fileStat, stat)
 
 		if comm == "" {
 			comm = bytesutil.ToString(data.Comm[:])
 		}
 	}
 
-	if len(ProcessData.FileStat) == 0 {
-		return
-	}
-
-	cmdline := getCmdline(pid)
-	if cmdline == "" {
+	cmdline, err := executil.ProcNameByPid(pid)
+	if err != nil {
 		cmdline = comm
 	}
-	ProcessData.Comm = cmdline
-	ProcessData.DiskRead = dread
-	ProcessData.DiskWrite = dwrite
-	ProcessData.FsRead = read
-	ProcessData.FsWrite = write
-	ProcessData.Pid = pid
 
-	containerID, _ := getContainerByPid(pid)
-	if containerID != "" {
-		if c, ok := tracingCmd.containers[containerID]; ok {
-			ProcessData.ContainerHostname = c.Hostname
-		} else {
-			ProcessData.ContainerHostname = containerID
-		}
-	}
-	tracingCmd.ioData.ProcessData = append(tracingCmd.ioData.ProcessData, ProcessData)
-}
-
-// sortProcessIOSize sorts processes by their IO size in descending order.
-func sortProcessIOSize(processIOSize map[uint32]uint64) []keyValue {
-	var kvPairs []keyValue
-
-	for k, v := range processIOSize {
-		kvPairs = append(kvPairs, keyValue{k, v})
+	processData := ProcFileData{
+		Comm:      cmdline,
+		DiskRead:  dread,
+		DiskWrite: dwrite,
+		FsRead:    read,
+		FsWrite:   write,
+		Pid:       pid,
+		FileCount: tableLength,
+		FileStat:  fileStat,
 	}
 
-	sort.Slice(kvPairs, func(i, j int) bool {
-		return kvPairs[i].ioSize > kvPairs[j].ioSize
-	})
-
-	return kvPairs
-}
-
-// getContainerInfo retrieves container information from the server.
-func getContainerInfo(serverAddr string) {
-	containers, err := container.GetAllContainers(serverAddr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "GetAllContainers: %v\n", err)
-		return
-	}
-
-	for _, container := range containers {
-		tracingCmd.containers[container.ID] = container
-		if css, ok := container.CSS["blkio"]; ok {
-			tracingCmd.cssToContainerID[css] = container.ID
-		}
-	}
+	processData.ContainerHostname, _ = executil.HostnameByPid(pid)
+	return processData
 }
 
 // checkKprobeFunctionExists checks if a kprobe function exists in the kernel.
@@ -377,21 +291,67 @@ func checkKprobeFunctionExists(functionName string) bool {
 	return false
 }
 
-// shouldSkipFilesystemProgram determines if a filesystem program should be skipped.
-func shouldSkipFilesystemProgram(programName string, supportExt4, supportXFS bool) bool {
-	if !supportExt4 {
-		switch programName {
-		case "bpf_ext4_file_read_iter", "bpf_ext4_file_write_iter", "bpf_ext4_page_mkwrite":
+func shouldskipFsBpfOption(name string) bool {
+	return strings.HasPrefix(name, "bpf_anyfs")
+}
+
+func fsSupported(filesystem string) bool {
+	file, err := os.Open("/proc/filesystems")
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[len(fields)-1] == filesystem {
 			return true
 		}
 	}
-	if !supportXFS {
-		switch programName {
-		case "bpf_xfs_file_read_iter", "bpf_xfs_file_write_iter", "bpf_xfs_filemap_page_mkwrite":
-			return true
-		}
-	}
+
 	return false
+}
+
+func fsBpfOption() []bpf.AttachOption {
+	var opts []bpf.AttachOption
+
+	if fsSupported("ext4") {
+		opts = append(opts, []bpf.AttachOption{
+			{
+				ProgramName: "bpf_anyfs_file_read_iter",
+				Symbol:      "ext4_file_read_iter",
+			},
+			{
+				ProgramName: "bpf_anyfs_file_write_iter",
+				Symbol:      "ext4_file_write_iter",
+			},
+			{
+				ProgramName: "bpf_anyfs_filemap_page_mkwrite",
+				Symbol:      "ext4_page_mkwrite",
+			},
+		}...)
+	}
+
+	if fsSupported("xfs") {
+		opts = append(opts, []bpf.AttachOption{
+			{
+				ProgramName: "bpf_anyfs_file_read_iter",
+				Symbol:      "xfs_file_read_iter",
+			},
+			{
+				ProgramName: "bpf_anyfs_file_write_iter",
+				Symbol:      "xfs_file_write_iter",
+			},
+			{
+				ProgramName: "bpf_anyfs_filemap_page_mkwrite",
+				Symbol:      "xfs_filemap_page_mkwrite",
+			},
+		}...)
+	}
+
+	return opts
 }
 
 // attachAndEventPipe attaches BPF programs and creates an event pipe.
@@ -407,21 +367,7 @@ func attachAndEventPipe(ctx context.Context, b bpf.BPF) (bpf.PerfEventReader, er
 		}
 	}()
 
-	var ap1 []bpf.AttachOption
-	var ap2 []bpf.AttachOption
-
-	var supportExt4, supportXFS bool
-	if supportExt4, err = procfsutil.CheckFilesystemSupport("ext4"); err != nil {
-		return nil, err
-	}
-	if supportXFS, err = procfsutil.CheckFilesystemSupport("xfs"); err != nil {
-		return nil, err
-	}
-
-	infos, err := b.Info()
-	if err != nil {
-		return nil, err
-	}
+	infos, _ := b.Info()
 
 	/*
 		The chosen attachment points are rq_qos_issue and rq_qos_done, which were introduced in the 4.19 kernel
@@ -434,44 +380,62 @@ func attachAndEventPipe(ctx context.Context, b bpf.BPF) (bpf.PerfEventReader, er
 		This also depends on the kernel being configured with CONFIG_BLK_WBT_MQ=y and using block-mq.
 		Of course, if other qos strategies are enabled, there is no need to worry about this.
 	*/
-	var ioStartSymbol, ioDoneSymbol string
+	var requestQosIssue, requestQosDone string
 	if checkKprobeFunctionExists("rq_qos_issue") {
-		ioStartSymbol = "rq_qos_issue"
-		ioDoneSymbol = "rq_qos_done"
+		requestQosIssue = "rq_qos_issue"
+		requestQosDone = "rq_qos_done"
 	} else {
-		ioStartSymbol = "__rq_qos_issue"
-		ioDoneSymbol = "__rq_qos_done"
+		requestQosIssue = "__rq_qos_issue"
+		requestQosDone = "__rq_qos_done"
 	}
 
+	var defaultOption []bpf.AttachOption
 	for _, i := range infos.ProgramsInfo {
-		if shouldSkipFilesystemProgram(i.Name, supportExt4, supportXFS) {
+		if shouldskipFsBpfOption(i.Name) {
 			continue
 		}
 
 		switch i.Name {
-		case "bpf_io_schedule":
-			ap2 = append(ap2, bpf.AttachOption{ProgramName: i.Name, Symbol: "io_schedule"})
-		case "bpf_io_schedule_timeout":
-			ap2 = append(ap2, bpf.AttachOption{ProgramName: i.Name, Symbol: "io_schedule_timeout"})
 		case "bpf_rq_qos_issue":
-			ap1 = append(ap1, bpf.AttachOption{ProgramName: i.Name, Symbol: ioStartSymbol})
+			defaultOption = append(defaultOption, bpf.AttachOption{
+				ProgramName: i.Name,
+				Symbol:      requestQosIssue,
+			})
 		case "bpf_rq_qos_done":
-			ap1 = append(ap1, bpf.AttachOption{ProgramName: i.Name, Symbol: ioDoneSymbol})
+			defaultOption = append(defaultOption, bpf.AttachOption{
+				ProgramName: i.Name,
+				Symbol:      requestQosDone,
+			})
 		default:
 			symbol := strings.Split(i.SectionName, "/")
 			if len(symbol) != 2 {
 				return nil, fmt.Errorf("invalid section name: %s", i.SectionName)
 			}
-			ap1 = append(ap1, bpf.AttachOption{ProgramName: i.Name, Symbol: symbol[1]})
+
+			// Make sure we attach kretprobe of 'io_schedule' first, so we can obtain the stack
+			// in kprobe successfully.
+			switch symbol[0] {
+			case "kretprobe":
+				defaultOption = append([]bpf.AttachOption{
+					{
+						ProgramName: i.Name,
+						Symbol:      symbol[1],
+					},
+				}, defaultOption...)
+			default:
+				defaultOption = append(defaultOption, bpf.AttachOption{
+					ProgramName: i.Name,
+					Symbol:      symbol[1],
+				})
+			}
 		}
 	}
 
-	// Make sure we attach kretprobe of 'io_schedule' first, so we can obtain the stack
-	// in kprobe successfully.
-	ap1 = append(ap1, ap2...)
-	if err := b.AttachWithOptions(ap1); err != nil {
+	defaultOption = append(defaultOption, fsBpfOption()...)
+	if err := b.AttachWithOptions(defaultOption); err != nil {
 		return nil, fmt.Errorf("attach with options: %w", err)
 	}
+
 	ok = true
 	return reader, nil
 }
@@ -484,15 +448,21 @@ func parseCmdConfig(ctx *cli.Context) error {
 			maxProcess:         ctx.Uint64("max-process"),
 			maxFilesPerProcess: ctx.Uint64("max-files-per-process"),
 			scheduleThreshold:  ctx.Uint64("schedule-threshold"),
-			periodSecond:       ctx.Uint64("duration"),
+			durationSecond:     ctx.Uint64("duration"),
 		},
-		cssToContainerID: make(map[uint64]string),
-		containers:       make(map[string]*pod.Container),
 	}
 
-	if tracingCmd.config.periodSecond == 0 {
-		return fmt.Errorf("invalid period: %d", tracingCmd.config.periodSecond)
+	if tracingCmd.config.durationSecond == 0 {
+		return fmt.Errorf("period is zero")
 	}
+
+	if tracingCmd.config.scheduleThreshold == 0 {
+		return fmt.Errorf("schedule threshold is zero")
+	}
+
+	filters := make(map[string]any)
+
+	filters["FILTER_EVENT_TIMEOUT"] = tracingCmd.config.scheduleThreshold * 1000 * 1000
 
 	// if no devices, iotracing will trace all blkdev.
 	if deviceStr := ctx.String("device"); deviceStr != "" {
@@ -505,14 +475,11 @@ func parseCmdConfig(ctx *cli.Context) error {
 		var deviceArray [16]uint32
 		copy(deviceArray[:], deviceNums)
 
-		tracingCmd.devices = map[string]any{
-			"FILTER_DEVS":      deviceArray,
-			"FILTER_DEV_COUNT": uint32(len(deviceNums)),
-		}
+		filters["FILTER_DEVS"] = deviceArray
+		filters["FILTER_DEV_COUNT"] = uint32(len(deviceNums))
 	}
 
-	getContainerInfo(ctx.String("server-address"))
-
+	tracingCmd.filters = filters
 	return nil
 }
 
@@ -523,21 +490,21 @@ func mainAction(ctx *cli.Context) error {
 	}
 
 	if err := bpf.InitBpfManager(&bpf.Option{
-		KeepaliveTimeout: int(tracingCmd.config.periodSecond),
+		KeepaliveTimeout: int(tracingCmd.config.durationSecond),
 	}); err != nil {
 		return fmt.Errorf("init bpf: %w", err)
 	}
 	defer bpf.CloseBpfManager()
 
 	// load bpf
-	b, err := bpf.LoadBpfFromBytes("iotracing.o", iotracing, tracingCmd.devices)
+	b, err := bpf.LoadBpfFromBytes("iotracing.o", iotracing, tracingCmd.filters)
 	if err != nil {
 		return fmt.Errorf("load bpf: %w", err)
 	}
 	defer b.Close()
 
 	// set the time to receive kernel perf events
-	timeCtx, cancel := context.WithTimeout(ctx.Context, time.Duration(tracingCmd.config.periodSecond)*time.Second)
+	timeCtx, cancel := context.WithTimeout(ctx.Context, time.Duration(tracingCmd.config.durationSecond)*time.Second)
 	defer cancel()
 
 	signalCtx, signalCancel := signal.NotifyContext(timeCtx, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGINT, syscall.SIGTERM)
@@ -559,30 +526,19 @@ func mainAction(ctx *cli.Context) error {
 			return fmt.Errorf("read event: %w", err)
 		}
 
-		// event.Cost(ns), ioStat.config.ioScheduleThreshold(ms)
-		// event.Cost/1000(us), 1000*ioStat.config.ioScheduleThreshold(us)
-		if event.Cost/1000 > 1000*tracingCmd.config.scheduleThreshold {
-			if stackDepth < tracingCmd.config.maxStack {
-				var containerHostname string
-				if containerID, err := getContainerByPid(event.Pid); err == nil && containerID != "" {
-					if container, ok := tracingCmd.containers[containerID]; ok {
-						containerHostname = container.Hostname
-					} else {
-						containerHostname = containerID // if can't get the container name, we can still show the container ID.
-					}
-				}
+		if stackDepth < tracingCmd.config.maxStack {
+			hostname, _ := executil.HostnameByPid(event.Pid)
 
-				stack := IOStack{
-					Comm:              bytesutil.ToString(event.Comm[:]),
-					ContainerHostname: containerHostname,
-					Pid:               event.Pid,
-					Latency:           event.Cost / 1000,
-					Stack:             symbol.DumpKernelBackTrace(event.Stack[:], symbol.KsymbolStackMinDepth),
-				}
-
-				tracingCmd.ioData.IOStack = append(tracingCmd.ioData.IOStack, stack)
-				stackDepth++
+			stack := IOStack{
+				Comm:              bytesutil.ToString(event.Comm[:]),
+				ContainerHostname: hostname,
+				Pid:               event.Pid,
+				Latency:           event.Cost / 1000,
+				Stack:             symbol.DumpKernelBackTrace(event.Stack[:], symbol.KsymbolStackMinDepth),
 			}
+
+			tracingCmd.ioData.IOStack = append(tracingCmd.ioData.IOStack, stack)
+			stackDepth++
 		}
 	}
 
@@ -590,44 +546,32 @@ func mainAction(ctx *cli.Context) error {
 		return err
 	}
 
-	data, err := b.DumpMapByName("io_source_map")
+	iodata, err := b.DumpMapByName("io_source_map")
 	if err != nil {
 		return err
 	}
 
-	processFileTable := make(map[uint32]*PriorityQueue)
-	processIOSize := make(map[uint32]uint64)
-	for _, ioData := range data {
-		var ioDataStat IOBpfData
-		buf := bytes.NewReader(ioData.Value)
-		err = binary.Read(buf, binary.LittleEndian, &ioDataStat)
-		if err != nil {
-			fmt.Printf("iotracer error: %v\n", err)
+	sortTable := NewSortTable()
+	fileTable := NewFileTable()
+
+	for _, dataRaw := range iodata {
+		var data IOData
+
+		buf := bytes.NewReader(dataRaw.Value)
+		if err := binary.Read(buf, binary.LittleEndian, &data); err != nil {
 			return err
 		}
-		devSize := ioDataStat.BlockWriteBytes + ioDataStat.BlockReadBytes
-		if v, ok := processIOSize[ioDataStat.Pid]; !ok {
-			processIOSize[ioDataStat.Pid] = devSize
-			pq := make(PriorityQueue, 0)
-			processFileTable[ioDataStat.Pid] = &pq
-		} else {
-			processIOSize[ioDataStat.Pid] = v + devSize
-		}
 
-		item := &IODataStat{&ioDataStat, devSize}
-		pq := processFileTable[ioDataStat.Pid]
-		heap.Push(pq, item)
+		blkSize := data.BlockWriteBytes + data.BlockReadBytes
+
+		sortTable.Update(data.Pid, blkSize)
+		fileTable.Update(data.Pid, &IODataStat{&data, blkSize})
 	}
 
-	// Sort by io amount per process, we only get the first few process data
-	kvPairs := sortProcessIOSize(processIOSize)
-	for i, kv := range kvPairs {
-		if fileTable, ok := processFileTable[kv.pid]; ok {
-			parseIOData(kv.pid, fileTable)
-		}
-		// Gets the top processes with the highest number of io requests
-		if uint64(i) > tracingCmd.config.maxProcess {
-			break
+	pids := sortTable.TopKeyN(int(tracingCmd.config.maxProcess))
+	for _, pid := range pids {
+		if files := fileTable.QueueByKey(pid); files != nil {
+			tracingCmd.ioData.ProcessData = append(tracingCmd.ioData.ProcessData, parseProcFileTable(pid, files))
 		}
 	}
 
@@ -785,11 +729,6 @@ func main() {
 	app.Action = mainAction
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{
-			Name:  "server-address",
-			Value: "127.0.0.1:19704",
-			Usage: "huatuo-bamai server address",
-		},
-		&cli.StringFlag{
 			Name:  "device",
 			Usage: "Filter by device(s) (format: major:minor, multiple devices separated by comma, e.g., 8:0 or 8:0,253:0)",
 		},
@@ -816,10 +755,6 @@ func main() {
 			Name:  "schedule-threshold",
 			Value: 100,
 			Usage: "IO schedule threshold in milliseconds",
-		},
-		&cli.IntFlag{
-			Name:  "period-second",
-			Usage: "Period in seconds for collecting IO data",
 		},
 		&cli.Uint64Flag{
 			Name:  "duration",
