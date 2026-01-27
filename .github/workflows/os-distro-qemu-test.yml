@@ -10,7 +10,7 @@ jobs:
   # start VMs and test in them
   qemu-vm:
     name: Test in VM (${{ matrix.arch }} ${{ matrix.os }})
-    runs-on: ubuntu-24.04 # ${{ matrix.runner }}
+    runs-on: ubuntu-24.04   # ${{ matrix.runner }}
     env:
       VM_NAME: "huatuo-os-distro-test-vm"
     strategy:
@@ -21,10 +21,19 @@ jobs:
           - arch: amd64
             os: ubuntu24.04
             runner: ubuntu-24.04
+          - arch: amd64
+            os: ubuntu22.04
+            runner: ubuntu-24.04
+          - arch: amd64
+            os: ubuntu20.04
+            runner: ubuntu-24.04
 
           # arm64
           - arch: arm64
             os: ubuntu24.04
+            runner: ubuntu-24.04-arm
+          - arch: arm64
+            os: ubuntu22.04
             runner: ubuntu-24.04-arm
 
     steps:
@@ -44,7 +53,7 @@ jobs:
           .github/workflows/scripts/qemu-1-start-vm.sh ${{ matrix.arch }} ${{ matrix.os }} ${VM_NAME}
 
       - name: Run in VM
-        timeout-minutes: 60
+        timeout-minutes: 180
         run: |
           ssh \
           -i ${HOME}/.ssh/id_ed25519_vm \
